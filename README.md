@@ -1,36 +1,117 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Next.js + Prisma + PostgreSQL Docker Guide
 
-## Getting Started
+This project uses a dual-Docker setup: one for **Development** (with hot-reloading) and one for **Production** (optimized standalone build). Both setups share a PostgreSQL database with persistent data.
 
-First, run the development server:
+## 📂 Project Structure
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+Ensure your project root contains these specific files:
+
+```text
+.
+├── .env                      # Environment variables (Secrets)
+├── docker-compose.yml        # Development orchestration
+├── docker-compose.prod.yml   # Production orchestration
+├── Dockerfile.dev            # Development image definition
+├── Dockerfile.prod           # Production image definition
+├── next.config.js            # Next.js configuration
+└── prisma/
+    └── schema.prisma         # Database schema
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Quick Start
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Configure Environment
+Create a `.env` file in the root.
+**Crucial:** We use `localhost` for the host machine, but Docker will override this internally to communicate between containers.
 
-## Learn More
+```bash
+# .env
+POSTGRES_USER=myuser
+POSTGRES_PASSWORD=mypassword
+POSTGRES_DB=mydb
 
-To learn more about Next.js, take a look at the following resources:
+# Connection string for Local Tools (e.g. Prisma Studio running on host)
+DATABASE_URL="postgresql://myuser:mypassword@localhost:5432/mydb?schema=public"
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Configure Next.js
+Update `next.config.js` to enable Standalone mode (required for Production Docker).
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```javascript
+// next.config.js
+module.exports = {
+  output: 'standalone',
+  // ... other config
+};
+```
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Development Workflow
+*Features: Hot Reloading (HMR), Source maps, Exposed DB port.*
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Start Development
+```bash
+docker-compose up --build
+```
+- App is available at: `http://localhost:3000`
+- Database is available at: `localhost:5432`
+- **Code Changes:** Edit files locally, and the container updates instantly.
+
+### Stop Development
+```bash
+docker-compose down
+```
+*(Data is preserved in the Docker Volume)*
+
+---
+
+## Production Workflow
+*Features: Optimized build, Small image size, Static assets served efficiently.*
+
+### Test Production Locally
+```bash
+# 1. Stop dev containers to free up ports
+docker-compose down
+
+# 2. Build and start production
+docker-compose -f docker-compose.prod.yml up --build -d
+```
+- App is available at: `http://localhost` (Port 80)
+- **Note:** Changes to code require a rebuild to take effect.
+
+### Deploying Updates
+To deploy new code, pull the changes and run:
+```bash
+docker-compose -f docker-compose.prod.yml up --build -d
+```
+
+---
+
+## Database Management (Prisma)
+
+Since the database runs inside Docker, you have two ways to run migrations.
+
+### Method A: Run from Host (Recommended for Dev)
+Because we expose port `5432` in `docker-compose.yml`, you can run Prisma commands from your local terminal.
+
+```bash
+# Run migration
+npx prisma migrate dev --name init
+
+# Open Prisma Studio
+npx prisma studio
+```
+
+### Method B: Run inside Container (Recommended for CI/CD)
+If you don't have Node installed locally, run commands inside the container.
+
+```bash
+# For Development Container
+docker exec -it nextjs-app-dev npx prisma migrate dev
+
+# For Production Container
+docker exec -it nextjs-app-prod npx prisma migrate deploy
+```
